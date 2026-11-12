@@ -58,9 +58,9 @@ Congratulations, you are now sailing with the Ship of Harkinian! Have fun!
 # Configuration
 
 ### Default keyboard configuration
-| N64 | A | B | Z | Start | Analog stick | C buttons | D-Pad |
-| - | - | - | - | - | - | - | - |
-| Keyboard | X | C | Z | Space | WASD | Arrow keys | TFGH |
+| N64 | A | B | L | R | Z | Start | Analog stick | C buttons | D-Pad |
+| - | - | - | - | - | - | - | - | - | - |
+| Keyboard | X | C | E | R | Z | Space | WASD | Arrow keys | TFGH |
 
 ### Other shortcuts
 | Keys | Action |
@@ -74,6 +74,36 @@ Congratulations, you are now sailing with the Ship of Harkinian! Have fun!
 | F11 | Fullscreen |
 | Tab | Toggle Alternate assets |
 | Ctrl+R | Reset |
+
+### Ganondorf's controls
+What Ganondorf does differently from Link. Everything not listed works as it does for Link (A to talk, open doors,
+climb and grab; the stick to move; START for the menu).
+
+| N64 | Keyboard | Ganondorf |
+| - | - | - |
+| B | C | Ball of light; keep holding to charge Big Magic |
+| B, B, B | C | Sword combo (with his sword drawn) |
+| R | R | Cape guard: blocks hits and swats light back |
+| R + B | R + C | Pound the floor (shockwave) |
+| Stick + R | WASD + R | Dash; B during it is a lunging thrust (with his sword drawn) |
+| A (held) | X (held) | Sprint, where A has nothing else to do |
+| L | E | Levitate up (also lifts him off the ground) |
+| Z | Z | Levitate down; reaching the ground ends it |
+| L and Z released, in the air | | Hover; the stick moves him |
+| R3 (click the right stick) | | Z-targeting (Z is his levitation) |
+| L3 (click the left stick) | | His organ rises and he plays his theme |
+| C-Left / C-Down / C-Right | Arrow keys | The Dark Arts on those buttons, paid for with magic |
+| C-Right (held, trident) | Right arrow (held) | Spin the trident overhead; let go to hurl it, and it returns |
+| C-Up | Up arrow | First person, through his eyes |
+| START | Space | The Dark Arts menu: put an art on a C-button. Z + START pauses the game |
+| D-Pad Up | T | Laugh, raising the Triforce of Power |
+| D-Pad Down | G | Grab the nearest enemy by the throat; again (or B) to slam it down |
+| D-Pad Left | F | Change stance: the insta-kill dark aura (hold B to unleash it), then the trident, then back |
+| D-Pad Right | H | Transform into Ganon, and back (outdoors and in dungeons) |
+
+**As Ganon:** B swings his swords, R guards, R + B stomps a shockwave, Z charges, D-Pad Up roars.
+
+Controller buttons follow your mapping in **Settings > Controller**; the keyboard keys are the default layout above.
 
 # Project Overview
 Ship of Harkinian (SOH) is built atop a custom library dubbed libultraship (LUS). Back in the N64 days, there was an SDK distributed to developers named libultra; LUS is designed to mimic the functionality of libultra on modern hardware. In addition, we are dependent on the source code provided by the OOT decompilation project.
