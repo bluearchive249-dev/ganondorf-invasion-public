@@ -8677,8 +8677,8 @@ static s32 BossGanon_Player_TryToggleSword(BossGanon* this, PlayState* play) {
     if (!CVarGetInteger(CVAR_PLAY_AS_GDF("SwordStance"), 1) || !CHECK_BTN_ALL(input->press.button, BTN_DLEFT)) {
         return false;
     }
-    // D-Pad Left cycles: once the insta-kill dark aura (B, held, unleashes it), twice the trident stance, a third
-    // time back to normal (from the stance, in BossGanon_Player_SwordIdle)
+    // D-Pad Left cycles (as in Invasion games, and outside them too): once the insta-kill dark aura (B, held, unleashes it), twice the trident
+    // stance, a third time back to normal (from the stance, in BossGanon_Player_SwordIdle)
     if (!sPlayerDarkAuraMode && (sPlayerSwordState == GDF_SWORD_OFF)) {
         sPlayerDarkAuraMode = true;
         Audio_PlayActorSound2(&this->actor, BossGanon_Player_Voice(NA_SE_EN_GANON_SPARK));

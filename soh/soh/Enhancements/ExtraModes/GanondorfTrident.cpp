@@ -239,6 +239,8 @@ bool ReadFile() {
 
 } // namespace
 
+extern "C" s32 GdfInvasion_Role(void);
+
 extern "C" s32 GanondorfTrident_GetSelected(void) {
     // His stance always uses the Trident of Demise (in Invasion games and outside them alike)
     s32 weapon = 4;

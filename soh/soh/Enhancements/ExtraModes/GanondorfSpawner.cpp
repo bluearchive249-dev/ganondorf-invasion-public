@@ -33,7 +33,33 @@ s32 GdfSacred_HasTriforce(void);
 extern PlayState* gPlayState;
 }
 
+// Terraforming (the Build page and the summoning marker) where this copy of the game has it (GanondorfBuild.cpp);
+// without it, the Build page is gone and things are summoned straight in front of him
+#if __has_include("GanondorfBuild.h")
 #include "GanondorfBuild.h"
+#define GDF_HAS_BUILD 1
+#else
+#define GDF_HAS_BUILD 0
+static int GdfBuild_KindCount() { return 0; }
+static const char* GdfBuild_KindName(int) { return ""; }
+static int GdfBuild_CountHere() { return 0; }
+static int GdfBuild_MaxHere() { return 0; }
+static bool GdfBuild_IsPlacing() { return false; }
+static bool GdfBuild_IsSculpting() { return false; }
+static bool GdfBuild_IsTargeting() { return false; }
+static bool GdfBuild_Focus(Vec3f*) { return false; }
+static bool GdfBuild_Begin(int) { return false; }
+static bool GdfBuild_BeginSculpt() { return false; }
+static bool GdfBuild_BeginTarget() { return false; }
+static bool GdfBuild_PlacingFrame(Input*) { return false; }
+static int GdfBuild_TargetFrame(Input*, Vec3f*, s16*) { return -1; }
+static bool GdfBuild_RemoveNearest() { return false; }
+static int GdfBuild_ClearHere() { return 0; }
+static bool GdfBuild_RestoreGroundHere() { return false; }
+static void GdfBuild_Cancel() {}
+static const char* GdfBuild_PlacingTexName() { return nullptr; }
+static const char* GdfBuild_SculptInfo() { return ""; }
+#endif
 
 namespace {
 
@@ -79,14 +105,17 @@ const Summon sEnemies[] = {
 
 // Bosses outside their own rooms: some won't behave, and some may crash the game
 const Summon sBosses[] = {
-    { "Queen Gohma", ACTOR_BOSS_GOMA, 0 },
-    { "King Dodongo", ACTOR_BOSS_DODONGO, 0 },
-    { "Barinade", ACTOR_BOSS_VA, 0 },
-    { "Phantom Ganon", ACTOR_BOSS_GANONDROF, 1 },
-    { "Volvagia", ACTOR_BOSS_FD, 0 },
-    { "Morpha", ACTOR_BOSS_MO, 0 },
-    { "Bongo Bongo", ACTOR_BOSS_SST, 0 },
-    { "Twinrova", ACTOR_BOSS_TW, 0 },
+    // The mini-bosses fight anywhere. Of the dungeon bosses only these two are tried: the others are scripted to
+    // their own rooms (Gohma's ceiling and dark room, Volvagia's holes, Morpha's pool, Bongo Bongo's drum, Phantom Ganon's paintings, Twinrova's
+    // platforms) and do nothing or crash the game elsewhere.
+    { "Dark Link", ACTOR_EN_TORCH2, 0 },
+    { "Dead Hand", ACTOR_EN_DH, 0 },
+    { "Flare Dancer", ACTOR_EN_FD, 0 },
+    { "Iron Knuckle", ACTOR_EN_IK, 1 },
+    { "Gerudo fighter", ACTOR_EN_GELDB, 0 },
+    { "Stalfos", ACTOR_EN_TEST, 0 },
+    { "King Dodongo (experimental)", ACTOR_BOSS_DODONGO, 0 },
+    { "Barinade (experimental)", ACTOR_BOSS_VA, 0 },
 };
 
 const Summon sObjects[] = {
@@ -117,6 +146,8 @@ std::vector<std::string> sAllNames;
 char sFilter[64] = "";
 int sAllParams = 0;
 std::string sLast;
+Summon sPending;           // what's being placed with the marker
+std::string sPendingName;
 f32 sCamBlend = 0.0f; // 0 his own camera .. 1 overhead
 Vec3f sCamEye;        // where his own camera stood as the menu opened
 Vec3f sCamAt;
@@ -218,6 +249,8 @@ void SetOpen(bool open) {
     }
 }
 
+void SummonAt(const Summon& s, Vec3f pos, s16 yaw);
+
 void DoSummon(const Summon& s) {
     PlayState* play = gPlayState;
 
@@ -239,15 +272,52 @@ void DoSummon(const Summon& s) {
         }
         return;
     }
-    Player* player = GET_PLAYER(play);
-    s16 yaw = player->actor.shape.rot.y;
-    f32 dist = (ActorDB::Instance->RetrieveEntry(s.id).entry.category == ACTORCAT_BOSS) ? 300.0f : 120.0f;
-    Vec3f pos = player->actor.world.pos;
-    Actor* a;
+    // Choosing where it appears: a marker on the ground (A summons there, again and again; B goes back to the list)
+    sPending = s;
+    sPendingName = s.name;
+    sPending.name = sPendingName.c_str();
+    if (GdfBuild_BeginTarget()) {
+        sLast = std::string("Where? ") + s.name;
+    } else if (!GDF_HAS_BUILD) {
+        // (no marker in this copy: straight in front of him, facing him)
+        Player* player = GET_PLAYER(play);
+        s16 yaw = player->actor.shape.rot.y;
+        f32 dist = (ActorDB::Instance->RetrieveEntry(s.id).entry.category == ACTORCAT_BOSS) ? 300.0f : 120.0f;
+        Vec3f pos = player->actor.world.pos;
 
-    pos.x += Math_SinS(yaw) * dist;
-    pos.z += Math_CosS(yaw) * dist;
-    a = Actor_Spawn(&play->actorCtx, play, s.id, pos.x, pos.y, pos.z, 0, (s16)(yaw + 0x8000), 0, s.params);
+        pos.x += Math_SinS(yaw) * dist;
+        pos.z += Math_CosS(yaw) * dist;
+        SummonAt(sPending, pos, (s16)(yaw + 0x8000));
+    }
+}
+
+void SummonAt(const Summon& s, Vec3f pos, s16 yaw) {
+    PlayState* play = gPlayState;
+    // A dungeon boss appears only where its room isn't "cleared" (else it leaves its warp and heart and goes), and
+    // plays its room's intro unless its battle has begun: so the room's clear flag is lifted while it's summoned, and
+    // its battle marked as begun (which also skips that intro in its own room afterwards)
+    bool boss = (ActorDB::Instance->RetrieveEntry(s.id).entry.category == ACTORCAT_BOSS);
+    s32 room = play->roomCtx.curRoom.num;
+    bool wasClear = boss && Flags_GetClear(play, room);
+
+    if (boss) {
+        Flags_UnsetClear(play, room);
+        switch (s.id) {
+            case ACTOR_BOSS_GOMA:
+                Flags_SetEventChkInf(EVENTCHKINF_BEGAN_GOHMA_BATTLE);
+                break;
+            case ACTOR_BOSS_DODONGO:
+                Flags_SetEventChkInf(EVENTCHKINF_BEGAN_KING_DODONGO_BATTLE);
+                break;
+            case ACTOR_BOSS_VA:
+                Flags_SetEventChkInf(EVENTCHKINF_BEGAN_BARINA_BATTLE);
+                break;
+        }
+    }
+    Actor* a = Actor_Spawn(&play->actorCtx, play, s.id, pos.x, pos.y, pos.z, 0, yaw, 0, s.params);
+    if (wasClear) {
+        Flags_SetClear(play, room);
+    }
     sLast = std::string(a != nullptr ? "Summoned: " : "It wouldn't come: ") + s.name;
     Audio_PlaySfxGeneral(a != nullptr ? NA_SE_EN_GANON_LAUGH : NA_SE_SY_ERROR, &gSfxDefaultPos, 4,
                          &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
@@ -266,6 +336,9 @@ void MoveSel(int delta) {
 
 void MovePage(int delta) {
     sPage = (sPage + delta + PAGE_COUNT) % PAGE_COUNT;
+    if (!GDF_HAS_BUILD && (sPage == PAGE_BUILD)) {
+        sPage = (sPage + delta + PAGE_COUNT) % PAGE_COUNT;
+    }
     sScrollToSel = true;
     Audio_PlaySfxGeneral(NA_SE_SY_CURSOR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                          &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
@@ -349,6 +422,20 @@ void OnFrame() {
     }
     // Keep the world still (anything else may have let it go), and look down from overhead
     play->frameAdvCtx.enabled = true;
+    if (GdfBuild_IsTargeting()) {
+        // Choosing where a summoning appears
+        Vec3f pos;
+        s16 yaw;
+        int r = GdfBuild_TargetFrame(input, &pos, &yaw);
+
+        if (r > 0) {
+            SummonAt(sPending, pos, yaw);
+        } else if (r < 0) {
+            sLast = "";
+        }
+        OverheadCamera(play);
+        return;
+    }
     if (GdfBuild_IsPlacing()) {
         // Setting a piece down: the controls are the piece's until it's placed or cancelled
         if (!GdfBuild_PlacingFrame(input)) {
@@ -431,15 +518,22 @@ void GdfSpawnerWindow::Draw() {
     if (!sOpen || (gPlayState == nullptr)) {
         return;
     }
-    if (GdfBuild_IsPlacing()) {
+    if (GdfBuild_IsPlacing() || GdfBuild_IsTargeting()) {
         // Setting a piece down: the menu out of the way, its controls along the bottom
         ImGuiViewport* v = ImGui::GetMainViewport();
         ImDrawList* list = ImGui::GetForegroundDrawList(v);
-        const char* help = GdfBuild_IsSculpting()
-                               ? "Stick: move the brush    A (hold): raise    Z (hold): lower    D-pad: brush size    "
-                                 "B: done"
-                               : "Stick: move    C-Left/Right: turn    C-Up/Down: raise/lower (R held: taller/shorter)    "
-                           "D-pad: longer/shorter, wider/narrower    Z: onto the floor    A: set down    B: cancel";
+        std::string where = sLast + "    Stick: move the marker    C-Left/Right: turn    A: summon here    "
+                                    "B: back to the list";
+        const char* texName = GdfBuild_PlacingTexName();
+        std::string piece = std::string(texName != nullptr ? std::string("Texture: ") + texName + "  (L: next)    " : "") +
+                            "Stick: move    C-Left/Right: turn    C-Up/Down: raise/lower (R held: taller/shorter)    "
+                            "D-pad: longer/shorter, wider/narrower    Z: onto the floor    A: set down    B: cancel";
+        std::string sculpt = std::string(GdfBuild_SculptInfo()) +
+                             "    Stick: move the brush    A (hold): raise    Z (hold): lower    D-pad: brush size    B: done";
+        const char* help = GdfBuild_IsTargeting() ? where.c_str()
+                           : GdfBuild_IsSculpting()
+                               ? sculpt.c_str()
+                               : piece.c_str();
         float fontSize = ImGui::GetFontSize() * std::max(v->Size.y / 720.0f, 1.0f);
         ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fontSize, v->Size.x * 0.9f, v->Size.x * 0.9f, help);
         ImVec2 p(v->Pos.x + (v->Size.x - ts.x) * 0.5f, v->Pos.y + v->Size.y - ts.y - 24.0f);
@@ -474,6 +568,9 @@ void GdfSpawnerWindow::Draw() {
 
     // Pages
     for (int p = 0; p < PAGE_COUNT; p++) {
+        if (!GDF_HAS_BUILD && (p == PAGE_BUILD)) {
+            continue;
+        }
         if (p > 0) {
             ImGui::SameLine();
         }
@@ -493,7 +590,7 @@ void GdfSpawnerWindow::Draw() {
         ImGui::TextColored(ImVec4(0.8f, 0.75f, 0.6f, 1.0f), "Built here: %d of %d. Kept with your save.",
                            GdfBuild_CountHere(), GdfBuild_MaxHere());
     } else if (sPage == PAGE_BOSSES) {
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "Away from their own rooms some bosses misbehave or crash.");
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "Mini-bosses fight anywhere. The two dungeon bosses are experimental outside their rooms.");
     } else if (sPage == PAGE_ALL) {
         ImGui::SetNextItemWidth(170.0f * scale);
         if (ImGui::InputTextWithHint("##filter", "Search", sFilter, sizeof(sFilter))) {
