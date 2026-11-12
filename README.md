@@ -3,7 +3,7 @@
 The multiplayer edition of **Play as Ganondorf** for Ship of Harkinian: online, up to **six Links** play the game
 together while **one player invades as Ganondorf** to make their playthrough harder (at most 7 players).
 
-- **Ganondorf** has his full boss moveset (light balls, Big Magic, cape block, levitation, sword stance, tridents, the
+- **Ganondorf** has his full boss moveset (light balls, Big Magic, cape block, levitation, the dark aura, the trident, the
   throat grab, Ganon form) and all the character fixes.
 - **The Links** play the game as normal, each in his own colour: Green, Red, Blue, Purple, White or Black. They share
   their progress.
