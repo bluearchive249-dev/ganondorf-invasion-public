@@ -102,7 +102,7 @@ climb and grab; the stick to move; START for the menu).
 | D-Pad Left | F | Change stance: the insta-kill dark aura (hold B to unleash it), then the trident, then back |
 | D-Pad Right | H | Transform into Ganon, and back (outdoors and in dungeons) |
 
-> **Note:** The Dark Arts (the C-button arts, the START menu and the trident's secret technique) are not available in Single Player.
+> **Note:** The Dark Arts (the C-button arts and the START menu) are not available in Single Player.
 
 **As Ganon:** B swings his swords, R guards, R + B stomps a shockwave, Z charges, D-Pad Up roars.
 
