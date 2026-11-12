@@ -103,6 +103,8 @@ climb and grab; the stick to move; START for the menu).
 | D-Pad Right | H | Transform into Ganon, and back (outdoors and in dungeons) |
 
 > **Note:** The Dark Arts (the C-button arts and the START menu) are not available in Single Player. Single Player starts you as Ganondorf, with no way to swap back to Link. The trident's moves, the spin, the throw and its secret fireball ring, belong to his trident stance and work in every mode; only in Invasion do they cost magic.
+>
+> **Note:** You keep control of Ganondorf during cutscenes. This is on purpose: he is far bigger than Link, so you can move him out of the way if he blocks the camera or stands in front of other characters.
 
 **As Ganon:** B swings his swords, R guards, R + B stomps a shockwave, Z charges, D-Pad Up roars.
 
