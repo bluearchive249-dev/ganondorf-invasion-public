@@ -96,8 +96,8 @@ climb and grab; the stick to move; START for the menu).
 | C-Right (held, trident) | Right arrow (held) | Spin the trident overhead; let go to hurl it, and it returns |
 | C-Up | Up arrow | First person, through his eyes |
 | START | Space | The Dark Arts menu: put an art on a C-button. Z + START pauses the game |
-| D-Pad Up | T | Laugh, raising the Triforce of Power |
-| D-Pad Down | G | Grab the nearest enemy by the throat; again (or B) to slam it down |
+| D-Pad Up | T | Laugh, raising the Triforce of Power (now and then he dances instead) |
+| D-Pad Down | G | Grab the nearest enemy by the throat; again (or B) to slam it down. With nobody to grab: the Suavemente dance (B stops it; the stick moves him). Its song: `mods/ganondorf_songs/dance.ogg` |
 | D-Pad Left | F | Change stance: the insta-kill dark aura (hold B to unleash it), then the trident, then back |
 | D-Pad Right | H | Transform into Ganon, and back (outdoors and in dungeons) |
 
