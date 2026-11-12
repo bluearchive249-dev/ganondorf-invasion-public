@@ -82,10 +82,10 @@ climb and grab; the stick to move; START for the menu).
 | N64 | Keyboard | Ganondorf |
 | - | - | - |
 | B | C | Ball of light; keep holding to charge Big Magic |
-| B, B, B | C | Sword combo (with his sword drawn) |
+| B, B, B | C | Trident combo: two slashes and a stab (in the trident stance) |
 | R | R | Cape guard: blocks hits and swats light back |
 | R + B | R + C | Pound the floor (shockwave) |
-| Stick + R | WASD + R | Dash; B during it is a lunging thrust (with his sword drawn) |
+| Stick + R | WASD + R | Dash; B during it is a lunging thrust (in the trident stance) |
 | A (held) | X (held) | Sprint, where A has nothing else to do |
 | L | E | Levitate up (also lifts him off the ground) |
 | Z | Z | Levitate down; reaching the ground ends it |
