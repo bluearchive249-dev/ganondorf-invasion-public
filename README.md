@@ -92,17 +92,17 @@ climb and grab; the stick to move; START for the menu).
 | L and Z released, in the air | | Hover; the stick moves him |
 | R3 (click the right stick) | | Z-targeting (Z is his levitation) |
 | L3 (click the left stick) | | His organ rises and he plays his theme |
-| C-Left / C-Down / C-Right | Arrow keys | The Dark Arts on those buttons, paid for with magic |
+| C-Left / C-Down / C-Right | Arrow keys | The Dark Arts on those buttons, paid for with magic (Invasion only) |
 | C-Right (held, trident) | Right arrow (held) | Spin the trident overhead; let go to hurl it, and it returns |
-| C-Right (held 5 seconds, trident) | Right arrow (held) | **Secret technique:** keep spinning and a ring of eight fireballs rises around him (20 magic); let go and they scatter at the Links as the trident flies |
+| C-Right (held 5 seconds, trident) | Right arrow (held) | **Secret technique:** keep spinning and a ring of eight fireballs rises around him; let go and they scatter at the Links as the trident flies |
 | C-Up | Up arrow | First person, through his eyes |
-| START | Space | The Dark Arts menu: put an art on a C-button. Z + START pauses the game |
+| START | Space | The Dark Arts menu: put an art on a C-button (Invasion only). Z + START pauses the game |
 | D-Pad Up | T | Laugh, raising the Triforce of Power (now and then he dances instead) |
 | D-Pad Down | G | Grab the nearest enemy or NPC by the throat; again (or B) to slam them down. With nobody to grab: the Suavemente dance (B stops it; the stick moves him). Its song: `mods/ganondorf_songs/dance.ogg` (by Armaguidon) |
 | D-Pad Left | F | Change stance: the insta-kill dark aura (hold B to unleash it), then the trident, then back |
 | D-Pad Right | H | Transform into Ganon, and back (outdoors and in dungeons) |
 
-> **Note:** The Dark Arts (the C-button arts and the START menu) are not available in Single Player.
+> **Note:** The Dark Arts (the C-button arts and the START menu) are not available in Single Player. Single Player starts you as Ganondorf, with no way to swap back to Link. The trident's moves, the spin, the throw and its secret fireball ring, belong to his trident stance and work in every mode; only in Invasion do they cost magic.
 
 **As Ganon:** B swings his swords, R guards, R + B stomps a shockwave, Z charges, D-Pad Up roars.
 
