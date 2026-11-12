@@ -1,0 +1,1008 @@
+// Copyright (c) 2026 Grimsfrost. All rights reserved. No copying, editing or additions, by people or AI tools, without the author's written consent. See AI-POLICY.md.
+// Play as Ganondorf
+//
+// Replaces Link with Ganondorf from the Ganon's Tower fight, using his boss moveset instead of Link's.
+//
+// Link is still there underneath. He stays invisible and keeps handling walking, collision, doors,
+// ladders, loading zones and the camera, while Ganondorf (ACTOR_BOSS_GANON with GDF_PARAMS_PLAYER)
+// follows him and does the attacking. See the "Play as Ganondorf" section in z_boss_ganon.c.
+//
+// This file:
+//  - spawns Ganondorf next to Link (again after every scene change) and removes him when the option is
+//    turned off,
+//  - filters Link's input so he can't use his sword, shield, rolls, Z-targeting or (optionally) C-button items,
+//  - hides Link and his shadow while Ganondorf is shown,
+//  - levitation: L rises, Z sinks, letting go of both hovers in place, and the stick moves him around in
+//    the air like running on the ground,
+//  - while the cape is up, it works as a shield that every shield check accepts (Deku Scrub nuts, Octorok
+//    rocks, Twinrova's magic, mirror light puzzles, ...),
+//  - in water Ganondorf always walks the bottom like with Iron Boots (and doesn't need air); levitation
+//    brings him back up,
+//  - gives Link's voice clips Ganondorf's voice,
+//  - tells the camera how tall Ganondorf is,
+//  - optional title screen in his chamber, with him playing the organ (see BossGanon_TitleScreen),
+//  - D-Pad Right: transforms into Ganon (ACTOR_BOSS_GANON2 with GANON2_PARAMS_PLAYER) and back. Ganon is only
+//    allowed outdoors and in dungeons; anywhere else he turns back into Ganondorf.
+
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <SDL2/SDL.h>
+
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/ShipInit.hpp"
+#include "GanondorfSongs.h"
+#include "soh/cvar_prefixes.h"
+
+extern "C" {
+#include "z64.h"
+#include "macros.h"
+#include "functions.h"
+#include "variables.h"
+#include "overlays/actors/ovl_Boss_Ganon/z_boss_ganon.h"
+#include "overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.h"
+extern PlayState* gPlayState;
+}
+
+#include "PlayAsGanondorf.h"
+#include "GanondorfInvasion.h"
+
+#define CVAR_PLAY_AS_GDF(var) CVAR_ENHANCEMENT("PlayAsGanondorf." var)
+#define CVAR_PLAY_AS_GDF_ENABLED CVAR_PLAY_AS_GDF("Enabled")
+
+// Ganondorf's head is about this far above his root, which floats HoverHeight above Link's feet
+#define GDF_HEAD_ABOVE_ROOT 80.0f
+// ...and his eyes a bit below the top of his head
+#define GDF_EYES_ABOVE_ROOT 70.0f
+// Standing on the ground (not levitating): his head and eyes above his feet, and the height the camera frames
+#define GDF_STANDING_EYE_HEIGHT 92.0f
+#define GDF_STANDING_CAMERA_HEIGHT 120.0f
+
+// Levitation climb/sink speed, world units per frame
+#define GDF_LEVITATE_VERTICAL_SPEED 6.0f
+
+static bool sLinkShadowHidden = false;
+static bool sCapeShielding = false; // the cape is up and works as Link's shield
+static bool sForcedIronBoots = false; // Link wears Iron Boots because Ganondorf is in water
+
+static bool sWantGanon = false; // Ganon form, kept across areas where he's allowed
+static bool sGanonMusic = false;
+static bool sRemoteGanonMusic = false; // Invasion mode, a Link: the Invader's Ganon is about // Ganon's battle theme is playing instead of the area music
+static bool sGanonMusicNewArea = false;
+static u16 sPrevBgm = 0;
+static s16 sPrevBgmScene = -1;
+
+static bool sLevitating = false;
+static bool sSoftLanding = false; // let go of the levitation: no fall damage until Link lands
+static f32 sLevitateY = 0.0f;
+static f32 sLevitateSpeed = 0.0f;
+
+static bool IsStandingOnGround() {
+    return CVarGetInteger(CVAR_PLAY_AS_GDF("WalkOnGround"), 1) && !sLevitating;
+}
+
+static bool sSprinting = false; // holding A on the ground: Ganondorf sprints
+
+// Ganondorf: Invasion has no Ganondorf menu: he always keeps Link's C-button items
+extern "C" s32 PlayAsGanondorf_KeepItems(void) {
+    return true;
+}
+
+static bool IsEnabled() {
+    return CVarGetInteger(CVAR_PLAY_AS_GDF_ENABLED, 1) != 0;
+}
+
+extern "C" s32 PlayAsGanondorf_UseTitleScreen(void) {
+    return CVarGetInteger(CVAR_PLAY_AS_GDF("TitleScreen"), 1) != 0;
+}
+
+extern "C" s32 PlayAsGanondorf_IsTitleScreen(PlayState* play) {
+    return (play != NULL) && (gSaveContext.gameMode == GAMEMODE_TITLE_SCREEN) &&
+           (play->sceneNum == SCENE_GANONDORF_BOSS) && PlayAsGanondorf_UseTitleScreen();
+}
+
+static BossGanon* FindPlayerGanondorf(PlayState* play) {
+    for (Actor* actor = play->actorCtx.actorLists[ACTORCAT_MISC].head; actor != NULL; actor = actor->next) {
+        if ((actor->id == ACTOR_BOSS_GANON) && (actor->params == GDF_PARAMS_PLAYER) && (actor->update != NULL)) {
+            return (BossGanon*)actor;
+        }
+    }
+    return NULL;
+}
+
+static BossGanon2* FindPlayerGanon(PlayState* play) {
+    for (Actor* actor = play->actorCtx.actorLists[ACTORCAT_MISC].head; actor != NULL; actor = actor->next) {
+        if ((actor->id == ACTOR_BOSS_GANON2) && (actor->params == GANON2_PARAMS_PLAYER) && (actor->update != NULL)) {
+            return (BossGanon2*)actor;
+        }
+    }
+    return NULL;
+}
+
+static bool IsGanonFormEnabled() {
+    return CVarGetInteger(CVAR_PLAY_AS_GDF("GanonForm"), 1) != 0;
+}
+
+// Ganon is too big for houses, shops, grottos and other interiors. Dungeons and temples (and their bosses) are fine,
+// and so is anywhere outdoors. Not in the real Ganon fight, there can only be one Ganon.
+static bool IsGanonAllowedHere(PlayState* play) {
+    s16 scene = play->sceneNum;
+
+    if (scene == SCENE_GANON_BOSS) {
+        return false;
+    }
+    if (scene <= SCENE_GANONS_TOWER_COLLAPSE_EXTERIOR) {
+        return scene != SCENE_TREASURE_BOX_SHOP;
+    }
+    if ((scene >= SCENE_MARKET_ENTRANCE_DAY) && (scene <= SCENE_TEMPLE_OF_TIME_EXTERIOR_RUINS)) {
+        return true;
+    }
+    if ((scene == SCENE_CASTLE_COURTYARD_GUARDS_DAY) || (scene == SCENE_CASTLE_COURTYARD_GUARDS_NIGHT) ||
+        (scene == SCENE_CASTLE_COURTYARD_ZELDA)) {
+        return true;
+    }
+    return (scene >= SCENE_HYRULE_FIELD) && (scene <= SCENE_OUTSIDE_GANONS_CASTLE);
+}
+
+extern "C" s32 PlayAsGanondorf_UseOrganOcarina(void) {
+    PlayState* play = gPlayState;
+
+    return IsEnabled() && CVarGetInteger(CVAR_PLAY_AS_GDF("OrganOcarina"), 1) && (play != NULL) &&
+           (gSaveContext.gameMode == GAMEMODE_NORMAL) && (FindPlayerGanondorf(play) != NULL) &&
+           (FindPlayerGanon(play) == NULL);
+}
+
+extern "C" s32 PlayAsGanondorf_IsLevitating(void) {
+    return sLevitating;
+}
+
+extern "C" s32 PlayAsGanondorf_IsGanonOut(PlayState* play) {
+    return IsEnabled() && (play != NULL) && (FindPlayerGanon(play) != NULL);
+}
+
+static void KillPlayerGanondorf(PlayState* play, BossGanon* dorf) {
+    // His cape and projectiles point back at him
+    for (s32 i = 0; i < ACTORCAT_MAX; i++) {
+        for (Actor* actor = play->actorCtx.actorLists[i].head; actor != NULL; actor = actor->next) {
+            if ((actor->parent == &dorf->actor) &&
+                ((actor->id == ACTOR_BOSS_GANON) || (actor->id == ACTOR_EN_GANON_MANT))) {
+                Actor_Kill(actor);
+            }
+        }
+    }
+    Actor_Kill(&dorf->actor);
+
+    BossGanon2* ganon = FindPlayerGanon(play);
+    if (ganon != NULL) {
+        BossGanon2_Player_Remove(&ganon->actor, play);
+    }
+}
+
+// Frames he's been missing in this scene (a new scene: until he's spawned and drawn, Link would show in his place, a
+// little figure in the doorway for a moment). Link stays hidden that long, but no longer (should he never come).
+static s16 sNoDorfFrames = 0;
+#define GDF_WAIT_FOR_DORF_FRAMES 30
+
+// Going through a door into another scene: the fade waits a little, so he's seen going in
+static s16 sDoorDelay = 0;
+static u8 sDoorTransType = 0;
+#define GDF_DOOR_FADE_DELAY 20
+
+static bool ShouldHideLink(PlayState* play, Player* player) {
+    if (!IsEnabled() || (play == NULL) || (player == NULL) || (player != GET_PLAYER(play))) {
+        return false;
+    }
+
+    BossGanon* dorf = FindPlayerGanondorf(play);
+    if (dorf == NULL) {
+        return sNoDorfFrames < GDF_WAIT_FOR_DORF_FRAMES;
+    }
+
+    BossGanon2* ganon = FindPlayerGanon(play);
+    if (ganon != NULL) {
+        return !BossGanon2_Player_IsHidden(&ganon->actor);
+    }
+    return !BossGanon_Player_IsHidden(&dorf->actor);
+}
+
+// First-person look (C-Up): the view comes from Ganondorf's eyes, and neither he nor Link is drawn.
+// Aiming an item in first person (with Keep C-Button Items) still shows Link holding it.
+static bool IsLookingFirstPerson(PlayState* play, Player* player) {
+    if (!IsEnabled() || (play == NULL) || (player == NULL) || (player != GET_PLAYER(play)) || (player->unk_6AD != 1)) {
+        return false;
+    }
+    if (CVarGetInteger(CVAR_PLAY_AS_GDF("ShowLinkInCutscenes"), 0) && (play->csCtx.state != CS_STATE_IDLE)) {
+        return false;
+    }
+    return FindPlayerGanondorf(play) != NULL;
+}
+
+// Crawlspaces are too small for him: instead of showing Link, he travels through as a purple flame
+static bool IsCrawlFlame(PlayState* play, Player* player) {
+    if (!IsEnabled() || (play == NULL) || (player == NULL) || (player != GET_PLAYER(play)) ||
+        !(player->stateFlags2 & PLAYER_STATE2_CRAWLING) || !CVarGetInteger(CVAR_PLAY_AS_GDF("CrawlFlame"), 1)) {
+        return false;
+    }
+    if (CVarGetInteger(CVAR_PLAY_AS_GDF("ShowLinkInCutscenes"), 0) && (play->csCtx.state != CS_STATE_IDLE)) {
+        return false;
+    }
+    return FindPlayerGanondorf(play) != NULL;
+}
+
+static bool ShouldHideLinkModel(PlayState* play, Player* player) {
+    return ShouldHideLink(play, player) || IsLookingFirstPerson(play, player) || IsCrawlFlame(play, player);
+}
+
+// Epona is drawn as his black horse
+extern "C" s32 PlayAsGanondorf_UseGanonHorse(void) {
+    return IsEnabled() && CVarGetInteger(CVAR_PLAY_AS_GDF("GanondorfHorse"), 1);
+}
+
+extern "C" s32 PlayAsGanondorf_IsCrawlFlame(PlayState* play, Player* player) {
+    return IsCrawlFlame(play, player);
+}
+
+static void SetLinkShadowHidden(Player* player, bool hidden) {
+    if (hidden) {
+        player->actor.shape.shadowAlpha = 0;
+        sLinkShadowHidden = true;
+    } else if (sLinkShadowHidden) {
+        player->actor.shape.shadowAlpha = 255;
+        sLinkShadowHidden = false;
+    }
+}
+
+// Runs right after Link's update: his update resets the shield collider and decides whether he's shielding
+static void UpdateCapeShield(PlayState* play, Player* player, BossGanon* dorf) {
+    BossGanon2* ganon = (dorf != NULL) ? FindPlayerGanon(play) : NULL;
+
+    if ((ganon != NULL) && BossGanon2_Player_IsGuarding(&ganon->actor)) {
+        // Ganon's guard works the same way
+        player->stateFlags1 |= PLAYER_STATE1_SHIELDING;
+        BossGanon2_Player_UpdateGuardShield(&ganon->actor, play);
+        sCapeShielding = true;
+    } else if ((dorf != NULL) && (ganon == NULL) && BossGanon_Player_IsCapeUp(&dorf->actor)) {
+        player->stateFlags1 |= PLAYER_STATE1_SHIELDING;
+        BossGanon_Player_UpdateCapeShield(&dorf->actor, play);
+        sCapeShielding = true;
+    } else if (sCapeShielding) {
+        player->stateFlags1 &= ~PLAYER_STATE1_SHIELDING;
+        sCapeShielding = false;
+    }
+}
+
+// Ganondorf sinks in water and walks the bottom like with Iron Boots, using his whole moveset down there.
+// Link's own Iron Boots handling does the work; his equipped boots come back once he's out of the water.
+static void UpdateWaterBoots(PlayState* play, Player* player, bool ganondorfShown) {
+    bool inWater = (player->stateFlags1 & PLAYER_STATE1_IN_WATER) != 0;
+
+    if (ganondorfShown && inWater && CVarGetInteger(CVAR_PLAY_AS_GDF("IronBootsInWater"), 1)) {
+        if (player->currentBoots != PLAYER_BOOTS_IRON) {
+            player->currentBoots = PLAYER_BOOTS_IRON;
+            Player_SetBootData(play, player);
+        }
+        sForcedIronBoots = true;
+    } else if (sForcedIronBoots) {
+        player->currentBoots = BOOTS_EQUIP_TO_PLAYER(CUR_EQUIP_VALUE(EQUIP_TYPE_BOOTS));
+        Player_SetBootData(play, player);
+        sForcedIronBoots = false;
+    }
+}
+
+static void StopLevitating() {
+    if (sLevitating) {
+        sLevitating = false;
+        sSoftLanding = true;
+    }
+}
+
+// L rises, Z sinks, neither hovers in place. The stick moves Ganondorf like running on the ground.
+// Runs after Link's own update, so it overrides his falling every frame.
+static void UpdateLevitation(PlayState* play, Player* player, BossGanon* dorf) {
+    Input* input = &play->state.input[0];
+    bool up = CHECK_BTN_ALL(input->cur.button, BTN_L);
+    bool down = CHECK_BTN_ALL(input->cur.button, BTN_Z);
+    bool notAllowed =
+        (player->stateFlags1 &
+         (PLAYER_STATE1_CLIMBING_LADDER | PLAYER_STATE1_HANGING_OFF_LEDGE | PLAYER_STATE1_CLIMBING_LEDGE |
+          PLAYER_STATE1_DEAD | PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_TALKING | PLAYER_STATE1_ON_HORSE |
+          PLAYER_STATE1_GETTING_ITEM | PLAYER_STATE1_IN_ITEM_CS | PLAYER_STATE1_CARRYING_ACTOR)) ||
+        (player->stateFlags2 & PLAYER_STATE2_CRAWLING) || BossGanon_Player_IsHidden(&dorf->actor);
+
+    if (!sLevitating) {
+        if (up && !notAllowed && BossGanon_Player_CanAct(&dorf->actor)) {
+            sLevitating = true;
+            sSoftLanding = false;
+            sLevitateY = player->actor.world.pos.y;
+            sLevitateSpeed = player->linearVelocity;
+        } else {
+            // Ganondorf floats back down after letting go, no fall damage
+            if (sSoftLanding) {
+                if (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) {
+                    sSoftLanding = false;
+                } else {
+                    player->fallStartHeight = (s16)player->actor.world.pos.y;
+                    player->fallDistance = 0;
+                }
+            }
+            return;
+        }
+    }
+
+    if (notAllowed) {
+        StopLevitating();
+        return;
+    }
+
+    // Up and down
+    if (up && !down) {
+        sLevitateY += GDF_LEVITATE_VERTICAL_SPEED;
+    } else if (down && !up) {
+        sLevitateY -= GDF_LEVITATE_VERTICAL_SPEED;
+
+        // Landed: Link takes over on the ground again
+        if ((player->actor.floorHeight > BGCHECK_Y_MIN + 1.0f) && (sLevitateY <= player->actor.floorHeight)) {
+            player->actor.world.pos.y = player->actor.floorHeight;
+            player->actor.velocity.y = 0.0f;
+            StopLevitating();
+            return;
+        }
+    }
+
+    // Around, like running: same speed limit and camera-relative stick as Link on the ground
+    f32 stickMagnitude;
+    s16 stickAngle;
+    func_80077D10(&stickMagnitude, &stickAngle, input);
+
+    if (BossGanon_Player_IsBusy(&dorf->actor) || (stickMagnitude < 8.0f)) {
+        stickMagnitude = 0.0f;
+    }
+
+    f32 targetSpeed = (stickMagnitude / 60.0f) * ((f32)R_RUN_SPEED_LIMIT / 100.0f) *
+                      PlayAsGanondorf_GetRunSpeedFactor(play, player);
+    Math_StepToF(&sLevitateSpeed, targetSpeed, (targetSpeed > sLevitateSpeed) ? 1.5f : 2.0f);
+
+    if (stickMagnitude > 0.0f) {
+        s16 worldYaw = (s16)(Camera_GetInputDirYaw(GET_ACTIVE_CAM(play)) + stickAngle);
+        Math_ScaledStepToS(&player->actor.shape.rot.y, worldYaw, 0x1800);
+    }
+    player->yaw = player->actor.world.rot.y = player->actor.shape.rot.y;
+
+    player->actor.world.pos.x += Math_SinS(player->actor.shape.rot.y) * sLevitateSpeed;
+    player->actor.world.pos.z += Math_CosS(player->actor.shape.rot.y) * sLevitateSpeed;
+    player->actor.world.pos.y = sLevitateY;
+
+    // Walls and ceilings still stop him
+    Actor_UpdateBgCheckInfo(play, &player->actor, 26.0f, 18.0f, Player_GetHeight(player), 1 | 2);
+    sLevitateY = player->actor.world.pos.y;
+
+    // Link's own falling does nothing while levitating
+    player->linearVelocity = 0.0f;
+    player->actor.speedXZ = 0.0f;
+    player->actor.velocity.x = player->actor.velocity.y = player->actor.velocity.z = 0.0f;
+    player->fallStartHeight = (s16)player->actor.world.pos.y;
+    player->fallDistance = 0;
+}
+
+// Ganon's battle theme while he's out, then the area music again
+static void PlayAreaMusic(PlayState* play) {
+    if (play->sequenceCtx.seqId != NA_BGM_NO_MUSIC) {
+        Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | play->sequenceCtx.seqId);
+    } else if (play->sequenceCtx.natureAmbienceId != NATURE_ID_NONE) {
+        Audio_PlayNatureAmbienceSequence(play->sequenceCtx.natureAmbienceId);
+    } else {
+        Audio_QueueSeqCmd(NA_BGM_STOP);
+    }
+}
+
+static void UpdateGanonMusic(PlayState* play, bool on) {
+    if (on && (!sGanonMusic || sGanonMusicNewArea)) {
+        u16 current = func_800FA0B4(SEQ_PLAYER_BGM_MAIN);
+
+        // In a new area the old area's music (or Ganon's) may still be playing: bring back the new area's own later
+        sPrevBgm = (sGanonMusic || ((current & 0xFF) == NA_BGM_GANON_BOSS)) ? (u16)NA_BGM_GANON_BOSS : current;
+        sPrevBgmScene = play->sceneNum;
+        Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | NA_BGM_GANON_BOSS);
+        sGanonMusic = true;
+    } else if (!on && sGanonMusic) {
+        sGanonMusic = false;
+
+        if (((sPrevBgm & 0xFF) == NA_BGM_GANON_BOSS) || (sPrevBgmScene != play->sceneNum)) {
+            PlayAreaMusic(play);
+        } else if ((sPrevBgm & 0xFF) == NA_BGM_NATURE_AMBIENCE) {
+            Audio_PlayNatureAmbienceSequence(play->sequenceCtx.natureAmbienceId);
+        } else if ((sPrevBgm == NA_BGM_DISABLED) || ((sPrevBgm & 0xFF) == 0xFF)) {
+            Audio_QueueSeqCmd(NA_BGM_STOP);
+        } else {
+            Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | sPrevBgm);
+        }
+    }
+    sGanonMusicNewArea = false;
+}
+
+// Sword stance: the dash (stick + R) and the lunging thrust carry Link along
+static void UpdateSwordDash(PlayState* play, Player* player, BossGanon* dorf) {
+    s16 yaw;
+    f32 speed;
+
+    if (!BossGanon_Player_GetDash(&dorf->actor, &yaw, &speed) || (speed <= 0.0f)) {
+        return;
+    }
+    player->actor.shape.rot.y = player->actor.world.rot.y = player->yaw = yaw;
+    player->actor.world.pos.x += Math_SinS(yaw) * speed;
+    player->actor.world.pos.z += Math_CosS(yaw) * speed;
+    player->linearVelocity = 0.0f;
+    Actor_UpdateBgCheckInfo(play, &player->actor, 26.0f, 18.0f, Player_GetHeight(player), 1 | 4);
+}
+
+// D-Pad Right: Ganondorf transforms into Ganon (standing on the ground), and Ganon turns back. Ganon comes back
+// right away in the next area if it allows him.
+static void UpdateGanon(PlayState* play, Player* player, BossGanon* dorf) {
+    BossGanon2* ganon = FindPlayerGanon(play);
+    Input* input = &play->state.input[0];
+    bool toggle = CHECK_BTN_ALL(input->press.button, BTN_DRIGHT);
+
+    if (!IsGanonFormEnabled() || !IsGanonAllowedHere(play)) {
+        if (ganon != NULL) {
+            BossGanon2_Player_Remove(&ganon->actor, play);
+        }
+        sWantGanon = false;
+        UpdateGanonMusic(play, false);
+        return;
+    }
+
+    if (ganon == NULL) {
+        bool canTransform = BossGanon_Player_CanAct(&dorf->actor) && !BossGanon_Player_IsHidden(&dorf->actor) &&
+                            !sLevitating && (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
+                            !(player->stateFlags1 & PLAYER_STATE1_ON_HORSE) && !GanondorfSongs_IsOcarinaOut();
+
+        // Turned back (or the transformation never finished). Not when Ganon comes back in a new area.
+        if (!sWantGanon) {
+            UpdateGanonMusic(play, false);
+        }
+
+        // Not on horseback (he comes back once Link gets off)
+        // Invasion mode: becoming Ganon costs Resolve and magic (coming back in a new area doesn't)
+        if ((sWantGanon && !(player->stateFlags1 & PLAYER_STATE1_ON_HORSE)) ||
+            (toggle && canTransform && GdfInvasion_PayGanonForm())) {
+            // home.rot.z = 1: already Ganon (a new area), no transformation
+            Actor_Spawn(&play->actorCtx, play, ACTOR_BOSS_GANON2, player->actor.world.pos.x,
+                        player->actor.world.pos.y, player->actor.world.pos.z, 0, player->actor.shape.rot.y,
+                        sWantGanon ? 1 : 0, GANON2_PARAMS_PLAYER);
+            sGanonMusicNewArea = sWantGanon;
+            sWantGanon = true;
+            StopLevitating();
+            sSoftLanding = false;
+        }
+        return;
+    }
+
+    UpdateGanonMusic(play, BossGanon2_Player_IsGanonForm(&ganon->actor));
+
+    // Invasion mode: pacified, Ganondorf kneels (Ganon is gone); his magic running dry turns him back
+    if (GdfInvasion_IsPacified()) {
+        BossGanon2_Player_Remove(&ganon->actor, play);
+        sWantGanon = false;
+        UpdateGanonMusic(play, false);
+        return;
+    }
+    if (BossGanon2_Player_IsGanonForm(&ganon->actor) && !BossGanon2_Player_IsReverting(&ganon->actor) &&
+        !GdfInvasion_GanonFormUpkeep() && BossGanon2_Player_CanAct(&ganon->actor)) {
+        BossGanon2_Player_StartRevert(&ganon->actor, play);
+        sWantGanon = false;
+    }
+
+    if (BossGanon2_Player_IsReverting(&ganon->actor)) {
+        sWantGanon = false;
+    } else if (toggle && BossGanon2_Player_CanAct(&ganon->actor)) {
+        BossGanon2_Player_StartRevert(&ganon->actor, play);
+        sWantGanon = false;
+    }
+
+    // Charging: Ganon pulls Link along until a wall stops him
+    s16 chargeYaw;
+    f32 chargeSpeed;
+    if (BossGanon2_Player_GetCharge(&ganon->actor, &chargeYaw, &chargeSpeed) && (chargeSpeed > 0.0f)) {
+        player->actor.shape.rot.y = player->actor.world.rot.y = player->yaw = chargeYaw;
+        player->actor.world.pos.x += Math_SinS(chargeYaw) * chargeSpeed;
+        player->actor.world.pos.z += Math_CosS(chargeYaw) * chargeSpeed;
+        player->linearVelocity = 0.0f;
+        Actor_UpdateBgCheckInfo(play, &player->actor, 26.0f, 18.0f, Player_GetHeight(player), 1 | 4);
+
+        if ((player->actor.bgCheckFlags & BGCHECKFLAG_WALL) &&
+            (ABS((s16)(player->actor.wallYaw - chargeYaw + 0x8000)) < 0x3000)) {
+            BossGanon2_Player_StopCharge(&ganon->actor, play);
+        }
+    }
+}
+
+static void PlayAsGanondorf_OnPlayerUpdate() {
+    PlayState* play = gPlayState;
+    if (play == NULL) {
+        return;
+    }
+
+    Player* player = GET_PLAYER(play);
+    if (player == NULL) {
+        return;
+    }
+
+    BossGanon* dorf = FindPlayerGanondorf(play);
+
+    // Title screen: Link stays hidden and frozen, and no second Ganondorf
+    if (PlayAsGanondorf_IsTitleScreen(play)) {
+        if (dorf != NULL) {
+            KillPlayerGanondorf(play, dorf);
+        }
+        player->stateFlags1 |= PLAYER_STATE1_INPUT_DISABLED;
+        SetLinkShadowHidden(player, true);
+        return;
+    }
+
+    if (!IsEnabled()) {
+        if (dorf != NULL) {
+            KillPlayerGanondorf(play, dorf);
+        }
+        SetLinkShadowHidden(player, false);
+        // (a Link: on while the Invader's Ganon is about, see PlayAsGanondorf_SetGanonMusic)
+        UpdateGanonMusic(play, sRemoteGanonMusic);
+        sWantGanon = false;
+        UpdateCapeShield(play, player, NULL);
+        UpdateWaterBoots(play, player, false);
+        sLevitating = sSoftLanding = false;
+        return;
+    }
+
+    if (dorf == NULL) {
+        // New scene: start on the ground
+        sLevitating = sSoftLanding = false;
+        sDoorDelay = 0;
+        sNoDorfFrames = MIN(sNoDorfFrames + 1, 1000);
+        Actor_Spawn(&play->actorCtx, play, ACTOR_BOSS_GANON, player->actor.world.pos.x, player->actor.world.pos.y,
+                    player->actor.world.pos.z, 0, player->actor.shape.rot.y, 0, GDF_PARAMS_PLAYER);
+        dorf = FindPlayerGanondorf(play);
+    }
+
+    if (dorf != NULL) {
+        sNoDorfFrames = 0;
+        // The door's fade, held back until he's through (see PlayAsGanondorf_DelayDoorTransition)
+        if ((sDoorDelay > 0) && (--sDoorDelay == 0) && (play->transitionTrigger == TRANS_TRIGGER_OFF)) {
+            play->transitionTrigger = TRANS_TRIGGER_START;
+            play->transitionType = sDoorTransType;
+        }
+        UpdateGanon(play, player, dorf);
+        if (FindPlayerGanon(play) == NULL) {
+            UpdateLevitation(play, player, dorf);
+            UpdateSwordDash(play, player, dorf);
+        }
+    }
+    UpdateCapeShield(play, player, dorf);
+    UpdateWaterBoots(play, player, ShouldHideLink(play, player));
+
+    SetLinkShadowHidden(player, ShouldHideLinkModel(play, player));
+}
+
+// Z is his levitation's "sink", so on a controller, clicking the right stick (R3) does Z-targeting instead: needed for
+// locking on, and for the Poe minion's notes on an enemy (target it, then C-Up). Read straight from the controllers,
+// as R3 isn't one of the N64 buttons.
+static bool IsControllerButtonHeld(SDL_GameControllerButton button) {
+    for (int i = 0; i < SDL_NumJoysticks(); i++) {
+        if (!SDL_IsGameController(i)) {
+            continue;
+        }
+        SDL_GameController* controller = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
+        if ((controller != nullptr) && SDL_GameControllerGetButton(controller, button)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool IsRightStickClicked() {
+    return IsControllerButtonHeld(SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+}
+
+// The organ: clicking the left stick (L3) on a controller plays it (and stops it). True on the
+// frame it's clicked; the same answer for every caller within a frame.
+extern "C" s32 PlayAsGanondorf_OrganButtonPressed(void) {
+    static u32 sLastFrame = 0xFFFFFFFF;
+    static bool sHeld = false;
+    static bool sPressed = false;
+
+    if (gPlayState == nullptr) {
+        return false;
+    }
+    if (gPlayState->gameplayFrames != sLastFrame) {
+        bool held = CVarGetInteger(CVAR_PLAY_AS_GDF("L3Organ"), 1) &&
+                    IsControllerButtonHeld(SDL_CONTROLLER_BUTTON_LEFTSTICK);
+
+        sPressed = held && !sHeld;
+        sHeld = held;
+        sLastFrame = gPlayState->gameplayFrames;
+    }
+    return sPressed;
+}
+
+extern "C" void PlayAsGanondorf_FilterInput(PlayState* play, Player* player, Input* input) {
+    sSprinting = false;
+    if (!ShouldHideLink(play, player)) {
+        return;
+    }
+
+    BossGanon* dorf = FindPlayerGanondorf(play);
+    if (dorf == NULL) {
+        return;
+    }
+    BossGanon2* ganon = FindPlayerGanon(play);
+    bool busy = (ganon != NULL) ? BossGanon2_Player_IsBusy(&ganon->actor) : BossGanon_Player_IsBusy(&dorf->actor);
+
+    // B = sword, R = shield, Z = targeting, L = levitate. D-pad Up is the laugh, D-pad Right the transformation
+    // (the organ is on L3, D-pad Down is free).
+    // D-pad Down is the throat grab
+    u16 blocked = BTN_B | BTN_R | BTN_Z | BTN_L | BTN_DUP | BTN_DDOWN;
+
+    if (IsGanonFormEnabled()) {
+        blocked |= BTN_DRIGHT;
+    }
+    if (CVarGetInteger(CVAR_PLAY_AS_GDF("SwordStance"), 1)) {
+        blocked |= BTN_DLEFT;
+    }
+    // A at a locked, chained or barred door, a cell, gate or grate: he kicks it in (and Link doesn't try the door)
+    if ((ganon == NULL) && CHECK_BTN_ALL(input->press.button, BTN_A) && BossGanon_Player_TryBreakKick(&dorf->actor, play)) {
+        input->cur.button &= ~BTN_A;
+        input->press.button &= ~BTN_A;
+    }
+    // Ganon's claws can't hold items. With his sword or trident out, the C-buttons are its moves (spin, slam,
+    // wave or the trident's spin and fireball ring): Link mustn't use his items with them too (holding C-Right fired
+    // his item and broke off the trident's spin before the ring came)
+    if ((ganon != NULL) || !PlayAsGanondorf_KeepItems() || ((ganon == NULL) && BossGanon_Player_InStance())) {
+        blocked |= BTN_CLEFT | BTN_CDOWN | BTN_CRIGHT;
+    }
+
+    // A still opens doors, talks, climbs, grabs and so on, but no rolls, jump attacks or side hops
+    u16 doAction = play->interfaceCtx.unk_1F0;
+
+    // Where A would roll or attack (blocked below), holding it makes him sprint
+    sSprinting = CVarGetInteger(CVAR_PLAY_AS_GDF("Sprint"), 1) && (ganon == NULL) && !busy && !sLevitating &&
+                 CHECK_BTN_ALL(input->cur.button, BTN_A) && (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
+                 ((doAction == DO_ACTION_NONE) || (doAction == DO_ACTION_ATTACK) || (doAction == DO_ACTION_JUMP) ||
+                  (doAction == DO_ACTION_PUTAWAY));
+    // Holding someone up by the throat, A doesn't talk to them (or open anything)
+    if (busy || sLevitating || ((ganon == NULL) && BossGanon_Player_IsHolding()) || (doAction == DO_ACTION_NONE) ||
+        (doAction == DO_ACTION_ATTACK) || (doAction == DO_ACTION_JUMP) || (doAction == DO_ACTION_PUTAWAY)) {
+        blocked |= BTN_A;
+    }
+
+    input->cur.button &= ~blocked;
+    input->press.button &= ~blocked;
+    input->rel.button &= ~blocked;
+
+    // R3: Z-targeting, in the air too (his levitation reads Z from the controller itself, so this Z doesn't sink him)
+    {
+        static bool sWasTargetHeld = false;
+        bool held = CVarGetInteger(CVAR_PLAY_AS_GDF("R3Targeting"), 1) && IsRightStickClicked();
+
+        if (held) {
+            input->cur.button |= BTN_Z;
+            if (!sWasTargetHeld) {
+                input->press.button |= BTN_Z;
+            }
+        } else if (sWasTargetHeld) {
+            input->rel.button |= BTN_Z;
+        }
+        sWasTargetHeld = held;
+    }
+
+    // Ganondorf stays put while he attacks, and levitation does its own movement
+    if (busy || sLevitating) {
+        input->cur.stick_x = input->cur.stick_y = 0;
+        input->rel.stick_x = input->rel.stick_y = 0;
+        input->press.stick_x = input->press.stick_y = 0;
+    }
+}
+
+extern "C" s32 PlayAsGanondorf_BreathesUnderwater(PlayState* play, Player* player) {
+    return ShouldHideLink(play, player) && CVarGetInteger(CVAR_PLAY_AS_GDF("IronBootsInWater"), 1);
+}
+
+// Link opened a door that leads to another scene (z_player.c): its fade starts a little later, so Ganondorf is seen
+// kicking it open and stepping through first
+extern "C" void PlayAsGanondorf_DelayDoorTransition(PlayState* play) {
+    if (!ShouldHideLink(play, GET_PLAYER(play)) || (FindPlayerGanondorf(play) == NULL) ||
+        (play->transitionTrigger != TRANS_TRIGGER_START)) {
+        return;
+    }
+    sDoorTransType = play->transitionType;
+    play->transitionTrigger = TRANS_TRIGGER_OFF;
+    sDoorDelay = GDF_DOOR_FADE_DELAY;
+}
+
+extern "C" s32 PlayAsGanondorf_IsCapeShielding(void) {
+    return sCapeShielding && IsEnabled();
+}
+
+extern "C" s32 PlayAsGanondorf_ShouldHideLink(PlayState* play, Player* player) {
+    return ShouldHideLinkModel(play, player) || PlayAsGanondorf_IsTitleScreen(play);
+}
+
+// Holding A on the ground (where A has nothing else to do): Ganondorf sprints (see PlayAsGanondorf_FilterInput)
+extern "C" s32 PlayAsGanondorf_IsSprinting(void) {
+    return sSprinting && IsEnabled();
+}
+
+extern "C" f32 PlayAsGanondorf_GetRunSpeedFactor(PlayState* play, Player* player) {
+    if (!ShouldHideLink(play, player)) {
+        return 1.0f;
+    }
+    return CVarGetFloat(CVAR_PLAY_AS_GDF("RunSpeed"), 1.5f) *
+           (sSprinting ? CVarGetFloat(CVAR_PLAY_AS_GDF("SprintSpeed"), 1.5f) : 1.0f);
+}
+
+// Holding a found item up: it's drawn above his hands instead of Link's
+extern "C" s32 PlayAsGanondorf_GetItemHoldPos(PlayState* play, Player* player, Vec3f* pos) {
+    if (!ShouldHideLink(play, player)) {
+        return false;
+    }
+    BossGanon* dorf = FindPlayerGanondorf(play);
+    return (dorf != NULL) && (FindPlayerGanon(play) == NULL) && BossGanon_Player_GetItemHoldPos(&dorf->actor, pos);
+}
+
+extern "C" s32 PlayAsGanondorf_GetFirstPersonEye(Player* player, Vec3f* eye) {
+    if (!IsLookingFirstPerson(gPlayState, player)) {
+        return false;
+    }
+    // Link's feet + Ganondorf's hover height + his eyes above his root. Levitating lifts Link too.
+    eye->x = player->actor.world.pos.x;
+    eye->y = player->actor.world.pos.y + (IsStandingOnGround()
+                                              ? GDF_STANDING_EYE_HEIGHT
+                                              : CVarGetFloat(CVAR_PLAY_AS_GDF("HoverHeight"), 70.0f) + GDF_EYES_ABOVE_ROOT);
+    eye->z = player->actor.world.pos.z;
+
+    // Ganon's eyes are a bit below the top of his head
+    BossGanon2* ganon = FindPlayerGanon(gPlayState);
+    if (ganon != NULL) {
+        eye->y = player->actor.world.pos.y + BossGanon2_Player_GetHeadHeight(&ganon->actor) - 20.0f;
+    }
+    return true;
+}
+
+// Where people look when they look at him: his head, not Link's (NPCs that track the player's head, z_actor.c)
+extern "C" s32 PlayAsGanondorf_GetLookAtPos(Player* player, Vec3f* pos) {
+    if ((gPlayState == NULL) || !ShouldHideLink(gPlayState, player)) {
+        return false;
+    }
+    pos->x = player->actor.world.pos.x;
+    pos->y = player->actor.world.pos.y + (IsStandingOnGround()
+                                              ? GDF_STANDING_EYE_HEIGHT
+                                              : CVarGetFloat(CVAR_PLAY_AS_GDF("HoverHeight"), 70.0f) + GDF_EYES_ABOVE_ROOT);
+    pos->z = player->actor.world.pos.z;
+
+    BossGanon2* ganon = FindPlayerGanon(gPlayState);
+    if (ganon != NULL) {
+        pos->y = player->actor.world.pos.y + BossGanon2_Player_GetHeadHeight(&ganon->actor) - 20.0f;
+    }
+    return true;
+}
+
+// Ganondorf walking on the ground plays his own footsteps, in time with his feet (z_boss_ganon.c), so Link's
+// (invisible) ones are muted
+extern "C" s32 PlayAsGanondorf_OwnsFootsteps(Player* player) {
+    return (gPlayState != NULL) && ShouldHideLink(gPlayState, player) && IsStandingOnGround() &&
+           (FindPlayerGanon(gPlayState) == NULL);
+}
+
+// He kicks doors open (z_en_door.c): while he's shown, not Link
+extern "C" s32 PlayAsGanondorf_ShouldKickDoors(void) {
+    return (gPlayState != NULL) && CVarGetInteger(CVAR_PLAY_AS_GDF("DoorKick"), 1) &&
+           ShouldHideLink(gPlayState, GET_PLAYER(gPlayState));
+}
+
+extern "C" s32 PlayAsGanondorf_IgnoresFreeze(Actor* actor) {
+    if (!IsEnabled() || (actor == nullptr)) {
+        return false;
+    }
+    switch (actor->id) {
+        case ACTOR_BOSS_GANON:
+            return actor->params == GDF_PARAMS_PLAYER;
+        case ACTOR_BOSS_GANON2:
+            return actor->params == GANON2_PARAMS_PLAYER;
+        case ACTOR_EN_GANON_MANT:
+            return (actor->parent != nullptr) &&
+                   (((actor->parent->id == ACTOR_BOSS_GANON) && (actor->parent->params == GDF_PARAMS_PLAYER)) ||
+                    ((actor->parent->id == ACTOR_BOSS_GANON2) && (actor->parent->params == GANON2_PARAMS_PLAYER)));
+        default:
+            return false;
+    }
+}
+
+extern "C" s32 PlayAsGanondorf_UseGanondorfName(void) {
+    return IsEnabled() && CVarGetInteger(CVAR_PLAY_AS_GDF("CallMeGanondorf"), 1);
+}
+
+extern "C" s32 PlayAsGanondorf_ARuns(void) {
+    return (gPlayState != NULL) && CVarGetInteger(CVAR_PLAY_AS_GDF("Sprint"), 1) && !sLevitating &&
+           ShouldHideLink(gPlayState, GET_PLAYER(gPlayState)) && (FindPlayerGanon(gPlayState) == NULL);
+}
+
+extern "C" s32 PlayAsGanondorf_OwnsLButton(void) {
+    return IsEnabled();
+}
+
+extern "C" s32 PlayAsGanondorf_UseGanondorfHud(void) {
+    return IsEnabled() && CVarGetInteger(CVAR_PLAY_AS_GDF("GanondorfHud"), 1);
+}
+
+// The Poe minion stands in for Navi: her look, her voice and her words
+extern "C" s32 PlayAsGanondorf_UsePoeNavi(void) {
+    return IsEnabled() && CVarGetInteger(CVAR_PLAY_AS_GDF("PoeNavi"), 1);
+}
+
+extern "C" u16 PlayAsGanondorf_GetNaviSfx(u16 sfxId) {
+    if (!PlayAsGanondorf_UsePoeNavi()) {
+        return sfxId;
+    }
+    switch (sfxId) {
+        case NA_SE_VO_NAVY_ENEMY:
+        case NA_SE_VO_NAVY_CALL:
+            return NA_SE_EN_PO_LAUGH2;
+        case NA_SE_VO_NAVY_HELLO:
+        case NA_SE_VO_NAVY_HEAR:
+        case NA_SE_VO_NA_HELLO_0:
+        case NA_SE_VO_NA_HELLO_1:
+        case NA_SE_VO_NA_HELLO_2:
+        case NA_SE_VO_NA_HELLO_3:
+            return NA_SE_EN_PO_LAUGH;
+        default:
+            return sfxId;
+    }
+}
+
+// Every camera mode scales its distance and height from the player's height, so report Ganondorf's
+// Young Link's cutscenes and conversations, with Ganondorf shown instead of him: their cameras are framed for a child
+// (eye and focus about 44 units up) and Ganondorf stands 120 tall, cut off at the chest. A shot of Link (its focus near
+// him) is raised to Ganondorf's height and drawn back so all of him is in it; a shot of something else (the scenery,
+// someone across the room) is left as it is, and one in between moves part way. Only what's shown changes, not the
+// camera's own course, so the cutscene's camera carries on as it was written.
+#define GDF_CS_CAM_CHILD_HEIGHT 44.0f
+#define GDF_CS_CAM_NEAR 120.0f // a focus this close to Link: a shot of him
+#define GDF_CS_CAM_FAR 260.0f  // this far: of something else
+extern "C" s32 BossGanon_Player_SwdKickView(PlayState* play, Vec3f* eye, Vec3f* at);
+
+extern "C" s32 PlayAsGanondorf_AdjustCutsceneView(Camera* camera, Vec3f* eye, Vec3f* at) {
+    PlayState* play = camera->play;
+    Player* player = (play != NULL) ? GET_PLAYER(play) : NULL;
+    f32 lift = CVarGetFloat(CVAR_PLAY_AS_GDF("CutsceneCameraLift"), 1.0f);
+
+    // The Master Sword kicked into the wall: a shot of it flying there (z_boss_ganon.c)
+    if ((play != NULL) && IsEnabled() && (camera->thisIdx == play->activeCamera) &&
+        BossGanon_Player_SwdKickView(play, eye, at)) {
+        return true;
+    }
+
+    // Link's house opening: he broods by the bed, not where Link lies, and the scene's own shots frame him there. Raised
+    // and drawn back (aimed at Link in bed) they cut him off at the shins and showed him out in the room.
+    if ((play != NULL) && (play->sceneNum == SCENE_LINKS_HOUSE) && (play->csCtx.state != CS_STATE_IDLE)) {
+        return false;
+    }
+    if ((player == NULL) || LINK_IS_ADULT || (lift <= 0.0f) || !CVarGetInteger(CVAR_PLAY_AS_GDF("CutsceneCamera"), 1) ||
+        !ShouldHideLink(play, player) || (player->stateFlags1 & PLAYER_STATE1_FIRST_PERSON)) {
+        return false;
+    }
+    if ((play->csCtx.state == CS_STATE_IDLE) &&
+        !(player->stateFlags1 & (PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_TALKING)) &&
+        (camera->thisIdx == CAM_ID_MAIN)) {
+        return false; // play: his own camera already stands at his height
+    }
+
+    Vec3f mid = player->actor.world.pos;
+    mid.y += GDF_CS_CAM_CHILD_HEIGHT * 0.6f;
+    f32 d = Math_Vec3f_DistXYZ(at, &mid);
+    f32 w = 1.0f - CLAMP((d - GDF_CS_CAM_NEAR) / (GDF_CS_CAM_FAR - GDF_CS_CAM_NEAR), 0.0f, 1.0f);
+
+    w = w * w * (3.0f - 2.0f * w);
+    if (w <= 0.0f) {
+        return false;
+    }
+    f32 rise = (GDF_STANDING_CAMERA_HEIGHT - GDF_CS_CAM_CHILD_HEIGHT) * w * lift;
+    Vec3f off = { eye->x - at->x, eye->y - at->y, eye->z - at->z };
+    f32 dist = sqrtf(SQ(off.x) + SQ(off.y) + SQ(off.z));
+    // Drawn back by up to 40% (less for shots already far off, none beyond 600 units)
+    f32 back = 1.0f + 0.4f * w * lift * CLAMP((600.0f - dist) / 200.0f, 0.0f, 1.0f);
+
+    // The focus up to his chest, the eye up to about his eyes' height
+    at->y += rise * 0.5f;
+    eye->x = at->x + off.x * back;
+    eye->y = at->y + off.y * back + rise * 0.25f;
+    eye->z = at->z + off.z * back;
+    return true;
+}
+
+extern "C" f32 PlayAsGanondorf_GetCameraHeight(Player* player) {
+    f32 height = Player_GetHeight(player);
+
+    if (ShouldHideLink(gPlayState, player)) {
+        // Open areas (anywhere with the open sky: Hyrule Field, Lake Hylia, ...) use wider camera settings, so they
+        // have their own distance
+        bool outdoors = (gPlayState->skyboxId == SKYBOX_NORMAL_SKY) && !gPlayState->envCtx.skyboxDisabled;
+        f32 distance = outdoors ? CVarGetFloat(CVAR_PLAY_AS_GDF("CameraDistanceOutdoors"), 0.75f)
+                                : CVarGetFloat(CVAR_PLAY_AS_GDF("CameraDistance"), 1.0f);
+        f32 ganondorfHeight = (IsStandingOnGround()
+                                   ? GDF_STANDING_CAMERA_HEIGHT
+                                   : CVarGetFloat(CVAR_PLAY_AS_GDF("HoverHeight"), 70.0f) + GDF_HEAD_ABOVE_ROOT) *
+                              distance;
+
+        // Ganon has his own distance
+        BossGanon2* ganon = FindPlayerGanon(gPlayState);
+        if (ganon != NULL) {
+            ganondorfHeight = (BossGanon2_Player_GetHeadHeight(&ganon->actor) + 20.0f) *
+                              CVarGetFloat(CVAR_PLAY_AS_GDF("GanonCameraDistance"), 0.8f);
+        }
+
+        if (ganondorfHeight > height) {
+            height = ganondorfHeight;
+        }
+    }
+
+    return height;
+}
+
+// Link's voice clips, child ones included, are swapped for Ganondorf's. Clips he has no equivalent for are muted.
+extern "C" u16 PlayAsGanondorf_GetVoiceSfx(Player* player, u16 sfxId) {
+    if (!ShouldHideLink(gPlayState, player) || !CVarGetInteger(CVAR_PLAY_AS_GDF("Voice"), 1)) {
+        return sfxId;
+    }
+
+    // Ganon only growls when he's hurt
+    if (FindPlayerGanon(gPlayState) != NULL) {
+        switch (NA_SE_VO_LI_SWORD_N + ((sfxId - NA_SE_VO_LI_SWORD_N) & 0x1F)) {
+            case NA_SE_VO_LI_FALL_L:
+            case NA_SE_VO_LI_TAKEN_AWAY:
+            case NA_SE_VO_LI_GROAN:
+                return NA_SE_EN_MGANON_DAMAGE;
+            case NA_SE_VO_LI_DOWN:
+                return NA_SE_EN_MGANON_DEAD1;
+            default:
+                return PLAY_AS_GANONDORF_MUTE;
+        }
+    }
+
+    // Child clips are the adult ones + 0x20
+    switch (NA_SE_VO_LI_SWORD_N + ((sfxId - NA_SE_VO_LI_SWORD_N) & 0x1F)) {
+        // Idling
+        case NA_SE_VO_LI_RELAX:
+            return NA_SE_EN_GANON_LAUGH;
+        case NA_SE_VO_LI_SWEAT:
+        case NA_SE_VO_LI_BREATH_REST:
+            return NA_SE_EN_GANON_BREATH;
+        case NA_SE_VO_LI_SNEEZE:
+            return NA_SE_EN_GANON_VOICE_DEMO;
+        // Getting hurt (the hit itself already plays his damage voice)
+        case NA_SE_VO_LI_FALL_L:
+        case NA_SE_VO_LI_TAKEN_AWAY:
+            return NA_SE_EN_GANON_DAMAGE2;
+        case NA_SE_VO_LI_DOWN:
+            return NA_SE_EN_GANON_DOWN;
+        case NA_SE_VO_LI_GROAN:
+            return NA_SE_EN_GANON_DAMAGE1;
+        // Effort
+        case NA_SE_VO_LI_SURPRISE:
+        case NA_SE_VO_LI_MAGIC_NALE:
+        case NA_SE_VO_LI_MAGIC_FROL:
+        case NA_SE_VO_LI_MAGIC_ATTACK:
+            return NA_SE_EN_GANON_AT_RETURN;
+        case NA_SE_VO_LI_BREATH_DRINK:
+            return NA_SE_EN_GANON_RESTORE;
+        default:
+            return PLAY_AS_GANONDORF_MUTE;
+    }
+}
+
+static void RegisterPlayAsGanondorf() {
+    // Always registered, so turning the option off also removes Ganondorf
+    COND_HOOK(OnPlayerUpdate, true, PlayAsGanondorf_OnPlayerUpdate);
+}
+
+static RegisterShipInitFunc initFunc(RegisterPlayAsGanondorf, {});
+
+extern "C" void PlayAsGanondorf_SetGanonMusic(PlayState* play, s32 on) {
+    sRemoteGanonMusic = on != 0;
+    UpdateGanonMusic(play, sRemoteGanonMusic);
+}
