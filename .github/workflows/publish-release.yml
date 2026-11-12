@@ -1,5 +1,6 @@
 # Publishes a release from a finished "generate-builds" run: its Windows and Linux builds, zipped as the run made
-# them, attached to a new release. Run by hand (Actions > publish-release > Run workflow).
+# them, with the repo's mods folder put beside the game, attached to a new release (or, for a tag that already has
+# one, replacing its zips). Run by hand (Actions > publish-release > Run workflow).
 name: publish-release
 on:
   workflow_dispatch:
@@ -28,6 +29,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+          sparse-checkout: mods
       - uses: actions/download-artifact@v4
         with:
           run-id: ${{ inputs.run_id }}
@@ -37,7 +42,10 @@ jobs:
         run: |
           cd builds
           for d in soh-windows soh-linux-x86_64 soh-linux-aarch64; do
-            if [ -d "$d" ]; then (cd "$d" && zip -qr "../Ganondorf-Invasion-${{ inputs.tag }}-${d#soh-}.zip" .); fi
+            if [ -d "$d" ]; then
+              mkdir -p "$d/mods" && cp -r ../repo/mods/. "$d/mods/"
+              (cd "$d" && zip -qr "../Ganondorf-Invasion-${{ inputs.tag }}-${d#soh-}.zip" .)
+            fi
           done
           ls -la
       - name: Create the release
@@ -47,5 +55,9 @@ jobs:
         run: |
           PRE=""
           if [ "${{ inputs.prerelease }}" = "true" ]; then PRE="--prerelease"; fi
+          if gh release view "${{ inputs.tag }}" -R "${{ github.repository }}" > /dev/null 2>&1; then
+            gh release upload "${{ inputs.tag }}" builds/*.zip -R "${{ github.repository }}" --clobber
+            exit 0
+          fi
           gh release create "${{ inputs.tag }}" builds/*.zip -R "${{ github.repository }}" \
             --target "${{ github.sha }}" --title "${{ inputs.title }}" --notes "$NOTES" $PRE
