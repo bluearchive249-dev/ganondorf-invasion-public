@@ -1,9 +1,9 @@
 // Ganondorf: Invasion, the multiplayer edition of "Play as Ganondorf".
 //
 // The online Invasion mode (up to six Links against one Ganondorf, over Anchor) with Ganondorf's full moveset and
-// fixes, and nothing else: the single-player extras (the Gerudo start and intro, Hyrule Castle's interior, the guards'
-// fear and hunt, killing people, the song player, his bodyguards, the title screen and logo) and the game's other extra
-// modes (Rupee Dash, Shadow Tag, traps, the enemy randomizer, ...) are off, and out of the menu. Invasion mode is on.
+// fixes, plus Hyrule Castle's interior (its drawbridge lowers for him) to explore. The other single-player extras (the
+// Gerudo start and intro, the guards' fear and hunt, killing people, the song player, his bodyguards, the title screen
+// and logo) and the game's other extra modes (Rupee Dash, Shadow Tag, traps, the enemy randomizer, ...) are off, and out of the menu. Invasion mode is on.
 
 #include <ship/Context.h>
 #include <ship/window/Window.h>
@@ -15,7 +15,7 @@
 static void ApplyInvasionEdition() {
     static const char* sOff[] = {
         CVAR_ENHANCEMENT("PlayAsGanondorf.GerudoStart"),    CVAR_ENHANCEMENT("PlayAsGanondorf.GerudoIntro"),
-        CVAR_ENHANCEMENT("PlayAsGanondorf.CastleInterior"), CVAR_ENHANCEMENT("PlayAsGanondorf.GuardsFear"),
+        CVAR_ENHANCEMENT("PlayAsGanondorf.GuardsFear"),
         CVAR_ENHANCEMENT("PlayAsGanondorf.KillNpcs"),       CVAR_ENHANCEMENT("PlayAsGanondorf.Songs.Enabled"),
         CVAR_ENHANCEMENT("PlayAsGanondorf.Bodyguards"),     CVAR_ENHANCEMENT("PlayAsGanondorf.TitleScreen"),
         CVAR_ENHANCEMENT("PlayAsGanondorf.TitleLogo"),      CVAR_ENHANCEMENT("RupeeDash"),
@@ -31,6 +31,7 @@ static void ApplyInvasionEdition() {
             CVarSetInteger(cvar, 0);
         }
     }
+    CVarSetInteger(CVAR_ENHANCEMENT("PlayAsGanondorf.CastleInterior"), 1); // (earlier versions turned it off)
     CVarSetInteger(CVAR_ENHANCEMENT("PlayAsGanondorf.Invasion.Enabled"), 1);
     Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }
