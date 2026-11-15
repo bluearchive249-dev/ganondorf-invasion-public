@@ -2,9 +2,9 @@
 //
 // The online Invasion mode (up to six Links against one Ganondorf, over Anchor) with Ganondorf's full moveset and
 // fixes, plus these single-player extras: Hyrule Castle's interior (its drawbridge lowers for him), the guards' fear of
-// him, the song player, his bodyguards, and his title screen and logo. The rest (the Gerudo start and intro, killing
-// people) and the game's other extra modes (Rupee Dash, Shadow Tag, traps, the enemy randomizer, ...) are off, and out
-// of the menu. Invasion mode is on.
+// him, the song player, his bodyguards (recruited from the captain in the Gerudo Fortress), and his title screen and
+// logo. The rest (the Gerudo start and intro, killing people) and the game's other extra modes (Rupee Dash, Shadow Tag,
+// traps, the enemy randomizer, ...) are off, and out of the menu. Invasion mode is on.
 
 #include <ship/Context.h>
 #include <ship/window/Window.h>
@@ -26,7 +26,7 @@ static void ApplyInvasionEdition() {
     // (on: earlier versions of this edition turned them off)
     static const char* sOn[] = {
         CVAR_ENHANCEMENT("PlayAsGanondorf.CastleInterior"), CVAR_ENHANCEMENT("PlayAsGanondorf.GuardsFear"),
-        CVAR_ENHANCEMENT("PlayAsGanondorf.Songs.Enabled"),  CVAR_ENHANCEMENT("PlayAsGanondorf.Bodyguards"),
+        CVAR_ENHANCEMENT("PlayAsGanondorf.Songs.Enabled"),
         CVAR_ENHANCEMENT("PlayAsGanondorf.TitleScreen"),    CVAR_ENHANCEMENT("PlayAsGanondorf.TitleLogo"),
     };
 
@@ -37,6 +37,12 @@ static void ApplyInvasionEdition() {
     }
     for (const char* cvar : sOn) {
         CVarSetInteger(cvar, 1);
+    }
+    // His bodyguards are recruited in play (the captain in the Gerudo Fortress calls them to his side, or sends them
+    // back), so they start off and are left as the player sets them. (Once only: an earlier version turned them on.)
+    if (!CVarGetInteger(CVAR_ENHANCEMENT("PlayAsGanondorf.Invasion.BodyguardsReset"), 0)) {
+        CVarSetInteger(CVAR_ENHANCEMENT("PlayAsGanondorf.Bodyguards"), 0);
+        CVarSetInteger(CVAR_ENHANCEMENT("PlayAsGanondorf.Invasion.BodyguardsReset"), 1);
     }
     CVarSetInteger(CVAR_ENHANCEMENT("PlayAsGanondorf.Invasion.Enabled"), 1);
     Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
