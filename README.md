@@ -7,6 +7,8 @@ together while **one player invades as Ganondorf** to make their playthrough har
   throat grab, Ganon form) and all the character fixes.
 - **The Links** play the game as normal, each in his own colour: Green, Red, Blue, Purple, White or Black. They share
   their progress.
+- **Single Player** The game can be entirely played in single player outside of Invasion using Ganondorf instead of Link. 
+  The only difference is that there are no Dark Arts. 
 
 ## How to play
 1. Everyone opens **Network > Anchor** in the menu bar, enters the same **Room ID**, a name, and presses **Enable**.
