@@ -1,10 +1,10 @@
 # Ganondorf: Invasion
 
 The multiplayer edition of **Play as Ganondorf** for Ship of Harkinian: online, up to **six Links** play the game
-together while **one player invades as Ganondorf** to make their playthrough harder (at most 7 players).
+together while **one player invades as Ganondorf** to make their playthrough harder (7 players max capacity).
 
-- **Ganondorf** has his full boss moveset (light balls, Big Magic, cape block, levitation, the dark aura, the trident, the
-  throat grab, Ganon form) and all the character fixes.
+- **Ganondorf** has his full boss moveset + original movesets from past games (light balls, Big Magic, cape block, levitation, the dark aura, the trident, the
+  throat grab, Ganon form) and more.
 - **The Links** play the game as normal, each in his own colour: Green, Red, Blue, Purple, White or Black. They share
   their progress.
 - **Single Player** The game can be entirely played in single player outside of Invasion using Ganondorf instead of Link. 
@@ -101,7 +101,7 @@ climb and grab; the stick to move; START for the menu).
 | C-Up | Up arrow | First person, through his eyes |
 | START | Space | The Dark Arts menu: put an art on a C-button (Invasion only). Z + START pauses the game |
 | D-Pad Up | T | Laugh, raising the Triforce of Power |
-| D-Pad Down | G | Grab the nearest enemy or NPC by the throat; again (or B) to slam them down. With nobody to grab: the Suavemente dance (B stops it; the stick moves him). Its song: `mods/ganondorf_songs/dance.ogg` (by Armaguidon) |
+| D-Pad Down | G | Grab the nearest enemy or NPC; again (or B) to slam them down. With nobody to grab: the Suavemente dance (B stops it; the stick moves him). Its song: `mods/ganondorf_songs/dance.ogg` (credit: Armaguidon) |
 | D-Pad Left | F | Change stance: the insta-kill dark aura (hold B to unleash it), then the trident, then back |
 | D-Pad Right | H | Transform into Ganon, and back (outdoors and in dungeons) |
 
