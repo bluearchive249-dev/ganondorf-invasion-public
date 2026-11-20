@@ -96,7 +96,7 @@ climb and grab; the stick to move; START for the menu).
 | L3 (click the left stick) | | His organ rises and he plays his theme |
 | C-Left / C-Down / C-Right | Arrow keys | The Dark Arts on those buttons, paid for with magic (Invasion only) |
 | C-Right (held, trident) | Right arrow (held) | Spin the trident overhead; let go to hurl it, and it returns |
-| C-Left (Levitating) | | Shoot lightning downwards beneath Ganondorf that spreads into several lightning rays |
+| C-Left (Levitating + Trident Stance) | Left arrow | Shoot a lightning orb downwards beneath Ganondorf that spreads into several lightning rays |
 | C-Right (held 5 seconds, trident) | Right arrow (held) | **Secret technique:** keep spinning and a ring of eight fireballs rises around him; let go and they scatter at the Links as the trident flies |
 | C-Up | Up arrow | First person, through his eyes |
 | START | Space | The Dark Arts menu: put an art on a C-button (Invasion only). Z + START pauses the game |
