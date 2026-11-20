@@ -84,9 +84,9 @@ climb and grab; the stick to move; START for the menu).
 | N64 | Keyboard | Ganondorf |
 | - | - | - |
 | B | C | Ball of light; keep holding to charge Big Magic |
-| B, B, B | C | Trident combo: two slashes and a stab (in the trident stance) |
+| B, B, B | C | **Trident**: two slashes and a stab. **Fists**: Jab, hook, uppercut.  |
 | R | R | Cape guard: blocks hits and swats light back |
-| R + B | R + C | Pound the floor (shockwave) |
+| R + B | R + C | Pound the floor (shockwave). **Fists**: Warlock Punch. |
 | Stick + R | WASD + R | Dash; B during it is a lunging thrust (in the trident stance) |
 | A (held) | X (held) | Sprint, where A has nothing else to do |
 | L | E | Levitate up (also lifts him off the ground) |
@@ -102,8 +102,8 @@ climb and grab; the stick to move; START for the menu).
 | START | Space | The Dark Arts menu: put an art on a C-button (Invasion only). Z + START pauses the game |
 | D-Pad Up | T | Laugh, raising the Triforce of Power |
 | D-Pad Down | G | Grab the nearest enemy or NPC; again (or B) to slam them down. With nobody to grab: the Suavemente dance (B stops it; the stick moves him). Its song: `mods/ganondorf_songs/dance.ogg` (credit: Armaguidon) |
-| D-Pad Left | F | Change stance: the insta-kill dark aura (hold B to unleash it), then the trident, then back |
-| D-Pad Right | H | Transform into Ganon, and back (outdoors and in dungeons) |
+| D-Pad Left | F | Change from four stances in a cycle: **Normal > Dark Aura > Trident > Fists**|
+| D-Pad Right | H | Transform into Ganon, and back (Doesn't work inside regular houses)|
 
 > **Note:** The Dark Arts (the C-button arts and the START menu) are not available in Single Player. Single Player starts you as Ganondorf, with no way to swap back to Link. The trident's moves, the spin, the throw and its secret fireball ring, belong to his trident stance and work in every mode; only in Invasion do they cost magic.
 >
