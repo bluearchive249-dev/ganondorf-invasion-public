@@ -6,7 +6,7 @@ together while **one player invades as Ganondorf** to make their playthrough har
 - **Ganondorf** has his full boss moveset + original movesets from past games (light balls, Big Magic, cape block, levitation, the dark aura, the trident, the
   throat grab, Ganon form) and more.
 - **The Links** play the game as normal, each in his own colour: Green, Red, Blue, Purple, White or Black. They share
-  their progress.
+  their progress. **NOTE:** Multiplayer for Invasion gamemode is in its early testing stage, expect bugs, glitches and missing features.
 - **Single Player** The game can be entirely played in single player outside of Invasion using Ganondorf instead of Link. 
   The only difference is that there are no Dark Arts. 
 
