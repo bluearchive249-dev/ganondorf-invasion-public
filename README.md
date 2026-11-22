@@ -3,8 +3,7 @@
 The multiplayer edition of **Play as Ganondorf** for Ship of Harkinian: online, up to **six Links** play the game
 together while **one player invades as Ganondorf** to make their playthrough harder (7 players max capacity).
 
-- **Ganondorf** has his full boss moveset + original movesets from past games (light balls, Big Magic, cape block, levitation, the dark aura, the trident, the
-  throat grab, Ganon form) and more.
+- **Ganondorf** has his full boss moveset + original movesets from past games, and new sequence-breaking abilities (kick down gates, locked doors, boss room doors and more).
 - **The Links** play the game as normal, each in his own colour: Green, Red, Blue, Purple, White or Black. They share
   their progress. **NOTE:** Multiplayer for Invasion gamemode is in its early testing stage, expect bugs, glitches and missing features.
 - **Single Player** The game can be entirely played in single player outside of Invasion using Ganondorf instead of Link. 
